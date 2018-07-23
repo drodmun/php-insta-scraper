@@ -1,12 +1,17 @@
 <?php header('Access-Control-Allow-Origin: *'); ?>
 
 <?php
+    // error_reporting(E_ALL); // DEBUG
+    // ini_set('display_errors', 1); // DEBUG
+
     class Utils {
         /**
          * Caller to standard PHP json decoder, but controlling error cases
          */
         public static function jsonDecode($json_string, $assoc = true) {
+            // echo '<br> $json_string: '; var_dump($json_string); // DEBUG
             $json_decoded = json_decode($json_string, $assoc);
+            // echo '<br> $json_decoded: '; var_dump($json_decoded); // DEBUG
             if ($error = json_last_error()) {
                 $errorReference = [
                     JSON_ERROR_DEPTH => 'Maximum stack depth exceeded.',
@@ -19,7 +24,7 @@
                     JSON_ERROR_UNSUPPORTED_TYPE => 'Type cannot be encoded.',
                 ];
                 $errStr = isset($errorReference[$error]) ? $errorReference[$error] : "Unknown error ($error)";
-                throw new \Exception("JSON decode error ($error): $errStr");
+                throw new Exception("JSON decode error ($error): $errStr");
             }
             return $json_decoded;
         }
@@ -45,9 +50,13 @@
          */
         public static function getUserPublicInfoData($username) {
             $url     = sprintf("https://www.instagram.com/$username");
+            // echo '<br> $url: '; var_dump($url); // DEBUG
             $content = file_get_contents($url);
+            // echo '<br> $content: '; var_dump($content); // DEBUG
             $content = explode("window._sharedData = ", $content)[1];
+            // echo '<br> $content: '; var_dump($content); // DEBUG
             $content = explode(";</script>", $content)[0];
+            // echo '<br> $content: '; var_dump($content); // DEBUG
     
             return $content;
         }
@@ -61,7 +70,8 @@
             $raw_data = InstagramScrapper::getUserPublicInfoData($username);
             // echo '<br> $raw_data: '; var_dump($raw_data); // DEBUG
 
-            $data    = Utils::jsonDecode();
+            $data = Utils::jsonDecode($raw_data);
+            // echo '<br> $data: '; var_dump($data); // DEBUG
             
             return json_encode($data['entry_data']['ProfilePage'][0]);
         }
@@ -115,17 +125,26 @@
 
 <?php
 
-    // DATA TO RETURN
-    $JSON_DATA = null;
-
-    // File where content is going to be cached
-    $cache_file = "./instagram_feed.json";
-
-    // Time to be cached
-    $cache_time = 24*60*60*1000; // 1 day (hours*minutes*seconds*1000)
-
     // Execute API only if username passed
     if(isset($_GET["username"])) {
+    
+        function retrieveAndUpdateInfo($username, $cache_file){
+            // Retrieve new information from IG
+            $JSON_DATA = InstagramScrapper::getPublicInformationJSON($username);
+            // echo '<br> JSON_DATA: '; var_dump($JSON_DATA); // DEBUG
+    
+            // Call to create cached file
+            Utils::createCacheFile($cache_file, $JSON_DATA);
+        }
+    
+        // DATA TO RETURN
+        $JSON_DATA = null;
+    
+        // File where content is going to be cached
+        $cache_file = "./instagram_feed.json";
+    
+        // Time to be cached
+        $cache_time = 24*60*60*1000; // 1 day (hours*minutes*seconds*1000)
         
         // Retrieve username of URL to obtain data from IG
         $username = htmlspecialchars($_GET["username"]);
@@ -144,12 +163,7 @@
         // If force to update cache, or cache older than time set, we delete the file and recreate it
         if ($forceUpdate || ($current_timestamp - $last_modified_ts >= $cache_time)) {
             // echo '<br> Updating file: '; var_dump($forceUpdate); // DEBUG
-
-            // Retrieve new information from IG
-            $JSON_DATA = InstagramScrapper::getPublicInformationJSON($username);
-
-            // Call to create cached file
-            InstagramScrapper::createCacheFile($cache_file, $JSON_DATA);
+            retrieveAndUpdateInfo($username, $cache_file);
         } else{
             // echo '<br> Retrieving from file: '; var_dump($cache_file); // DEBUG
 
@@ -163,7 +177,12 @@
             // echo '<br> onlyPics for: '; var_dump($JSON_DATA); // DEBUG
 
             //Modify return object to get only the images already formated to be received by the front
-            $JSON_DATA = InstagramScrapper::printOnlyImagesFormatted($JSON_DATA);
+            try {
+                $JSON_DATA = InstagramScrapper::printOnlyImagesFormatted($JSON_DATA);
+            } catch (Exception $e) {
+                // echo 'Excepción capturada: ',  $e->getMessage(), "\n";
+                retrieveAndUpdateInfo($username, $cache_file);
+            }
             // echo '<br> onlyPics data obtained: '; var_dump($JSON_DATA); // DEBUG
         }
 
